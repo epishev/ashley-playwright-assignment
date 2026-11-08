@@ -8,7 +8,6 @@ type UiFixtures = {
   homePage: HomePage;
   mattressPage: MattressPage;
   cartPage: CartPage;
-  expectSiteToBeUp: () => Promise<void>;
 };
 
 /**
@@ -60,13 +59,5 @@ export const test = base.extend<UiFixtures>({
   },
   cartPage: async ({ page }, use) => {
     await use(new CartPage(page));
-  },
-  // Uses its own short-lived page, because beforeAll cannot use the per-test page fixture.
-  expectSiteToBeUp: async ({ browser }, use) => {
-    await use(async () => {
-      const page = await browser.newPage();
-      await new HomePage(page).open();
-      await page.close();
-    });
   },
 });

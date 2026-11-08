@@ -8,6 +8,8 @@ test.describe('Products API', () => {
     const body = await response.json();
     expect(productsController.getSchemaErrors(body)).toEqual([]);
     expect(body.result.data.length).toBeGreaterThan(0);
+    // A backend that ignores the brand filter would return other brands' products too.
+    expect(productsController.getBrandsOtherThan(body, 'awara')).toEqual([]);
   });
 
   test('GET /products by name returns exactly the requested product', async ({ productsController }) => {
@@ -19,5 +21,6 @@ test.describe('Products API', () => {
     expect(productsController.getSchemaErrors(body)).toEqual([]);
     expect(body.result.data).toHaveLength(1);
     expect(body.result.data[0]).toMatchObject({ name });
+    expect(productsController.getBrandsOtherThan(body, 'awara')).toEqual([]);
   });
 });

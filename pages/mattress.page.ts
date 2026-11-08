@@ -54,27 +54,41 @@ export class MattressPage {
     return name;
   }
 
+  /**
+   * Waits for the page's pricing requests to go quiet, chooses the size once, and checks that it survives.
+   *
+   * Application defect (README, "Known application defect"): while the page loads it keeps re-pricing the
+   * cart, and its last request resets the size to the default (Queen) without any sign in the UI. The page
+   * exposes no readiness signal (no disabled control, no single "ready" response; in a probe, even waiting for
+   * the first quote and both offers responses still lost the choice in about 1 run of 12), so the wait for
+   * quiet pricing is a heuristic that lowers the odds of hitting the defect. It is not a guarantee. The size
+   * is never chosen again: if the app resets it, expectSizeToPersist fails and reports the defect.
+   */
   async selectSize(size: string) {
-    // Application defect worked around here: while the page loads it keeps
-    // re-pricing the cart (about 2 s locally, up to ~15 s on CI) and its last
-    // request resets the size to the default (Queen). A size chosen before that
-    // is silently lost and the cart gets the wrong size. The UI shows no sign
-    // of this, so wait for the pricing requests to go quiet, then confirm the
-    // choice survived, and choose again if the app reset it.
-    await expect(async () => {
-      await this.waitForPricingToSettle();
-      await this.sizeSelect.click();
-      // Option names look like "Twin XL(Total Value $1,041)$749". Match up to the bracket
-      // or price, because a plain prefix match would make "Twin" also match "Twin XL".
-      const option = this.page.getByRole('option', { name: new RegExp(`^${size}\\s*[($]`) });
-      this.selectedSizeText = ((await option.textContent()) ?? '').trim();
-      await option.click();
-      // The label changes first; the price follows once the size is applied.
-      await expect(this.sizeSelect).toHaveText(this.selectedSizeText);
-      // Our own change triggers re-pricing; the size must still be there after it.
-      await this.waitForPricingToSettle();
-      await expect(this.sizeSelect).toHaveText(this.selectedSizeText, { timeout: 1_000 });
-    }).toPass({ timeout: 45_000 });
+    await this.waitForPricingToSettle();
+    await this.chooseSize(size);
+    await this.expectSizeToPersist();
+  }
+
+  /** Chooses the size right now, without waiting for the page to finish loading. */
+  async chooseSize(size: string) {
+    await this.sizeSelect.click();
+    // Option names look like "Twin XL(Total Value $1,041)$749". Match up to the bracket
+    // or price, because a plain prefix match would make "Twin" also match "Twin XL".
+    const option = this.page.getByRole('option', { name: new RegExp(`^${size}\\s*[($]`) });
+    this.selectedSizeText = ((await option.textContent()) ?? '').trim();
+    await option.click();
+    // The label changes first; the price follows once the size is applied.
+    await expect(this.sizeSelect).toHaveText(this.selectedSizeText);
+  }
+
+  /** Our own change triggers re-pricing; waits for it to go quiet, then the chosen size must still be selected. */
+  async expectSizeToPersist() {
+    await this.waitForPricingToSettle();
+    await expect(
+      this.sizeSelect,
+      `the page reset the size after it was chosen (known application defect); expected "${this.selectedSizeText}"`,
+    ).toHaveText(this.selectedSizeText);
   }
 
   private async waitForPricingToSettle() {

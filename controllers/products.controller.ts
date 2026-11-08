@@ -34,6 +34,15 @@ export class ProductsController {
     return validateProductsBody.errors ?? [];
   }
 
+  /**
+   * Returns the `brand` of every product that does not belong to the requested brand, or an empty array.
+   * Compared case-insensitively: the QA API could not be reached to confirm the casing of the returned
+   * value (README, "Verification status"), and the request parameter is lowercase.
+   */
+  getBrandsOtherThan(body: ProductsBody, brand: string): string[] {
+    return body.result.data.map((product) => product.brand).filter((value) => value.toLowerCase() !== brand.toLowerCase());
+  }
+
   // Returns the response unparsed: a Cloudflare 403 is HTML, so tests must check the status before json().
   private getProducts(params: Record<string, string>): Promise<ProductsResponse> {
     return this.request.get('/products', { params });

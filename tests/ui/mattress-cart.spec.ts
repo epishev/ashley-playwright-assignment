@@ -4,10 +4,6 @@ import { test } from '../../fixtures/ui.fixture';
 const sizes = ['Twin', 'Twin XL', 'Full', 'Queen', 'King', 'Cal King'];
 
 test.describe('Adding a mattress to the cart', () => {
-  test.beforeAll(async ({ expectSiteToBeUp }) => {
-    await expectSiteToBeUp();
-  });
-
   test.beforeEach(async ({ homePage, mattressPage }) => {
     await test.step('Open the homepage', async () => {
       await homePage.open();

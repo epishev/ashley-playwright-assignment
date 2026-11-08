@@ -5,8 +5,8 @@ Playwright + TypeScript tests for the QA Automation Engineer home assignment.
 | Area | Test | File |
 | --- | --- | --- |
 | UI | For each of the 7 sizes: Homepage -> Hero Banner "Shop Mattress" -> choose size -> add to cart -> verify the cart | `tests/ui/mattress-cart.spec.ts` |
-| API | `GET /products?brand=awara` returns 200 and a non-empty `result.data` array | `tests/api/products.spec.ts` |
-| API | `GET /products?name=the-awara-hybrid-mattress-30&lang=en&brand=awara` returns 200 and exactly one product | `tests/api/products.spec.ts` |
+| API | `GET /products?brand=awara` returns 200, a non-empty `result.data` array, and only `awara` products | `tests/api/products.spec.ts` |
+| API | `GET /products?name=the-awara-hybrid-mattress-30&lang=en&brand=awara` returns 200 and exactly one product, named as requested, of brand `awara` | `tests/api/products.spec.ts` |
 
 The tests never go to checkout and never place an order.
 
@@ -55,8 +55,9 @@ attempt first, so the trace is under **Retries**, the open icon on the earlier a
 
 ## GitHub Actions
 
-`.github/workflows/playwright.yml` runs on every push, on pull requests from forks and manually (`workflow_dispatch`). A pull request from a
-branch of this repo is already tested by its push, so it does not run twice. The job installs dependencies and Chromium, type-checks, lints,
+`.github/workflows/playwright.yml` runs on every pull request (same repository or fork, so the change is tested merged with its target
+branch), on pushes to `main` (the repository's default branch) and manually (`workflow_dispatch`). A `concurrency` group per pull request
+number or branch ref cancels an obsolete run when a newer one starts, without touching other branches. The job installs dependencies and Chromium, type-checks, lints,
 runs `npm test` (2 workers, 1 retry), builds the Allure report and uploads it as the `allure-report` artifact, kept for 14 days and uploaded
 even when tests fail. To read it, open the workflow run, download `allure-report` under **Artifacts**, unzip it and open `index.html`.
 
@@ -88,8 +89,8 @@ eslint.config.mjs                  lint rules, including the project's Playwrigh
 - **Readable UI test.** The test gets its page objects from fixtures and only calls their named methods. Locators and assertions
   live in the page objects, as `expect...` methods. `MattressPage` listens for pricing requests, so it must exist before the page loads;
   that is why the navigating `beforeEach` asks for `mattressPage`.
-- **Hooks.** `beforeAll` checks once per worker that the site responds, so an outage fails with a clear message before any size test
-  starts. `beforeEach` opens the homepage and goes to the product page, in the fresh browser context of each test.
+- **Hooks.** `beforeEach` opens the homepage (and fails with a clear message if it does not answer 200) and goes to the product page, in the
+  fresh browser context of each test. There is no separate site check: it only repeated this one.
 - **Isolation.** Playwright creates a fresh browser context per test, so every test starts with an empty cart and only the popup cookies below.
 - **Locators.** Role and test-id locators only. The hero link is scoped to `hero_content_container`, because the
   comparison table has another "Shop Mattress" link and the hero has hidden responsive duplicates.
@@ -113,13 +114,15 @@ eslint.config.mjs                  lint rules, including the project's Playwrigh
 
   The tests therefore do not cover the first-visit content or the upsell. These cookie formats are internal to the vendor and the site and may change:
   if the banner or promo returns, clicks fail as blocked; if the upsell returns, the cart never opens. Either way, the fixture is the place to fix it.
-- **Timeouts.** A UI test takes 10-16 s on a developer machine. The test limit is 90 s because choosing the size may wait up to 45 s for the
+- **Timeouts.** A UI test takes 10-16 s on a developer machine. The test limit is 90 s because choosing the size may wait up to 30 s for the
   page's pricing requests. Assertions wait up to 15 s, because the cart opens only after the site saves the item. Clicks wait up to 15 s and
   page loads up to 30 s; in CI traces the slowest click took 2.1 s and the slowest page load 1.0 s.
 - **API layer.** Tests send requests only through the `productsController` fixture. The controller returns the response unparsed, so each test
   checks the status before calling `json()`: a Cloudflare 403 is HTML and would otherwise fail as a JSON parse error. A failed status check names
   the URL, the status and who answered, for example `server: cloudflare` and the `cf-ray` id of the block.
-- **API assertions.** After the status, the body is validated against a JSON Schema with Ajv, so a failure lists every violation. The response
+- **API assertions.** After the status, the body is validated against a JSON Schema with Ajv, so a failure lists every violation. Every
+  returned product must also have the requested brand, so a backend that ignores the filter fails. The comparison ignores case, because the
+  QA API was unreachable while this was written and the casing of the returned `brand` could not be confirmed. The response
   types exist only at compile time, and `JSONSchemaType` keeps the schema and types in sync. The schema requires the fields found on all 91
   products in a real `brand=awara` response and allows extra fields, so a new QA product that lacks one of them fails the test.
 - **Lint.** `npm run lint` runs on CI after the type check. Missing `await`s on Playwright calls and other promises, `waitForTimeout`,
@@ -145,17 +148,30 @@ eslint.config.mjs                  lint rules, including the project's Playwrigh
 On the product page, a size chosen while the page is still loading is silently reset to Queen, because the page keeps
 re-pricing the cart and its last request resets the size. The cart then receives the wrong size. The UI shows no sign of this.
 Locally the re-pricing takes about 2 s; on a slow runner the requests were spread over about 15 s with gaps of up to about 3.3 s.
-`MattressPage.selectSize` therefore waits until the page's pricing requests (`/carts/quote`, `/api/products`, `/applicable-offers`)
-have been quiet for 3.5 s, selects the size, waits for quiet again, and checks the size is still selected (choosing again if not).
-`networkidle` was tried and is not reliable here, so it is not used.
+The page exposes no readiness signal (the size control is never disabled and no single response marks the end), so nothing deterministic
+can be awaited. Observed on 2026-11-08 (6 runs per variant): choosing the size as soon as the dropdown appears lost it in 6 of 6 runs; waiting
+for the first `/carts/quote` response and both `applicable-offers` responses still lost it in 1 of 12.
+
+`MattressPage.selectSize` therefore waits until the page's pricing requests (`/carts/quote`, `/api/products`, `/applicable-offers`) have been
+quiet for 3.5 s. This is a timing heuristic that lowers the odds of hitting the defect; it does not guarantee anything. It then chooses the
+size **once**, waits for quiet again and asserts the size is still selected. It never chooses again, so if the app resets the size the test fails
+with a message naming the defect, instead of hiding it. `networkidle` was tried and is not reliable here, so it is not used.
+
+A dedicated regression test was tried and removed: choosing the size "as soon as the page allows" reproduced the reset in 12 of 13 runs, so
+as a test it would be flaky in both directions, and no deterministic trigger exists. The defect stays visible through the other tests, which fail
+(instead of choosing again) when the app resets the size.
 
 ## Verification status
 
-**Developer machine** (macOS, Node 24, Playwright 1.65, Chromium):
+**Developer machine, previous version** (historical, before the 2026-11-08 review: size re-selected inside `toPass`, no brand checks):
+`npm run test:ui` passed 14 of 14 (each size twice, 2 workers), and `npm run test:api` failed with HTTP 403 from Cloudflare.
 
-- `npm run typecheck` and `npm run lint` pass.
-- `npm run test:ui` passes: 14 of 14 with each of the 7 sizes run twice on 2 workers, as on CI.
-- `npm run test:api` fails: both tests get HTTP 403 from Cloudflare.
+**Developer machine, 2026-11-08** (macOS, Node 24, Playwright 1.65, Chromium; observed in the review of this change): 
+
+- `npm run typecheck` and `npm run lint` pass; `npx playwright test --list` finds 9 tests in 2 files.
+- `npm run test:ui` passes (7 of 7), and 21 of 21 with each size run 3 times, `CI=1`, 2 workers, no retries.
+- `npm run test:api` fails: both tests get HTTP 403 from Cloudflare (`cf-ray` ids in the output), so the new brand assertions were
+  **not run against a real response**. The brand casing is unconfirmed.
 
 **GitHub Actions** (`ubuntu-latest`): install, type check, lint and the artifact upload work, but `npm test` fails:
 

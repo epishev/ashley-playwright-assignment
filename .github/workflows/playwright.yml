@@ -1,17 +1,24 @@
 name: Playwright tests
 
 on:
-  push:
+  # Every pull request (same repository or fork) is tested merged with its target branch.
   pull_request:
+  # Pushes run only on the default branch, so a branch with an open pull request is not tested twice.
+  push:
+    branches: [main]
   workflow_dispatch:
+
+# A newer run for the same pull request or branch replaces an obsolete one. The group name includes the
+# pull request number or the ref, so runs of other branches are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   test:
-    # A pull request from a branch of this repo is already tested by its push, so only fork pull requests run here.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
