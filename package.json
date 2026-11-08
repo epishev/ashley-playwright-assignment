@@ -1,0 +1,33 @@
+{
+  "name": "ashley-playwright-assignment",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ashley Playwright assignment: UI and API tests for the QA Automation Engineer home assignment",
+  "license": "ISC",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --project=ui",
+    "test:api": "playwright test --project=api",
+    "test:headed": "playwright test --project=ui --headed",
+    "test:debug": "playwright test --project=ui --debug",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "report:allure": "allure generate allure-results --clean --open",
+    "report:allure:generate": "allure generate allure-results --clean"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
+    "ajv": "^8.20.0",
+    "allure": "^3.33.0",
+    "allure-playwright": "^3.14.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-playwright": "^2.12.2",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}
